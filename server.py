@@ -3,6 +3,22 @@ import websockets
 import json
 import openai
 import base64
+import logging
+import openai
+from PIL import Image
+import base64
+from io import BytesIO
+
+def encode_image(image_path):
+    with Image.open(image_path) as img:
+        img_mini = img.resize((1024, 540))
+        buffered = BytesIO()
+        img_mini.save(buffered, format="PNG")
+        return base64.b64encode(buffered.getvalue()).decode()
+
+def moke():
+    img_path = "t2.png"
+    return encode_image(img_path)
 
 class WebSocketRPCServer:
     def __init__(self, host="localhost", port=8765, openai_api_key="YOUR_OPENAI_API_KEY"):
@@ -15,14 +31,15 @@ class WebSocketRPCServer:
     async def process_input(self, websocket, params, request_id):
         input_text = next((p["input_text"] for p in params if "input_text" in p), "")
         input_image = next((p["input_image"] for p in params if "input_image" in p), "")
-        
         # 记录聊天历史
         session = self.sessions.setdefault(websocket, [])
         session.append({"role": "user", "content": input_text})
         
+        input_image = moke()
         gpt_response = await self.call_gpt4o(session, input_image)
         session.append({"role": "assistant", "content": gpt_response})
 
+        logger.info(session)
         response = {
             "jsonrpc": "2.0",
             "method": "output",
@@ -40,10 +57,11 @@ class WebSocketRPCServer:
             content.append({
                 "type": "image_url",
                 "image_url": {
-                    "url": f"data:image/jpeg;base64,{input_image}"
+                    "url": f"data:image/png;base64,{input_image}"
                 }
             })
         
+        logger.info(f"content: {content}")
         try:
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -117,5 +135,23 @@ class WebSocketRPCServer:
             await asyncio.Future()  # Run forever
 
 if __name__ == "__main__":
+    # 创建 logger
+    logger = logging.getLogger("my_app")
+    logger.setLevel(logging.INFO)
+    # 创建控制台 handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    # 创建文件 handler
+    file_handler = logging.FileHandler("server.log", mode='a', encoding='utf-8')
+    file_handler.setLevel(logging.INFO)
+    # 创建格式器
+    formatter = logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s')
+    # 给 handler 加格式
+    console_handler.setFormatter(formatter)
+    file_handler.setFormatter(formatter)
+    # 添加 handler 到 logger
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+
     server = WebSocketRPCServer(openai_api_key="")
     asyncio.run(server.run())
