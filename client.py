@@ -17,7 +17,6 @@ class WebSocketRPCClient:
                     for param in response_data["params"]:
                         if "output_text" in param:
                             logger.info(f"\nReceived text: {param['output_text']}")
-                            logger.info("Enter your message (or 'exit' to quit): ", end="")
                 else:
                     logger.info(f"Received: {response}")
             except websockets.exceptions.ConnectionClosed:

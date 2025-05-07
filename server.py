@@ -21,7 +21,7 @@ def moke():
     return encode_image(img_path)
 
 class WebSocketRPCServer:
-    def __init__(self, host="localhost", port=8765, openai_api_key="YOUR_OPENAI_API_KEY"):
+    def __init__(self, host="0.0.0.0", port=8765, openai_api_key="YOUR_OPENAI_API_KEY"):
         self.host = host
         self.port = port
         self.send_queue = asyncio.Queue()
@@ -39,15 +39,15 @@ class WebSocketRPCServer:
         gpt_response = await self.call_gpt4o(session, input_image)
         session.append({"role": "assistant", "content": gpt_response})
 
-        logger.info(session)
+        # logger.info(session)
         response = {
             "jsonrpc": "2.0",
             "method": "output",
             "params": [{"output_text": gpt_response}, {"output_image": ""}, {"output_audio": ""}],
             "id": request_id
         }
-        await self.send_queue.put(json.dumps(response))
 
+        await self.send_queue.put(json.dumps(response))
     async def call_gpt4o(self, session, input_image):
         client = openai.OpenAI(api_key=self.openai_api_key)
         
@@ -61,7 +61,7 @@ class WebSocketRPCServer:
                 }
             })
         
-        logger.info(f"content: {content}")
+        # logger.info(f"content: {content}")
         try:
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
@@ -127,7 +127,6 @@ class WebSocketRPCServer:
                 for param in response_data["params"]:
                     if "output_text" in param:
                         print(f"\nReceived text: {param['output_text']}")
-                        print("Enter your message (or 'exit' to quit): ", end="")
 
     async def run(self):
         async with websockets.serve(self.handler, self.host, self.port):
