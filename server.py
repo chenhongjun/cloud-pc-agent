@@ -4,9 +4,7 @@ import json
 import openai
 import base64
 import logging
-import openai
 from PIL import Image
-import base64
 from io import BytesIO
 
 def encode_image(image_path):
@@ -24,7 +22,7 @@ class WebSocketRPCServer:
     def __init__(self, host="0.0.0.0", port=8765, openai_api_key="YOUR_OPENAI_API_KEY"):
         self.host = host
         self.port = port
-        self.send_queue = asyncio.Queue()
+        self.send_queues = {}
         self.openai_api_key = openai_api_key
         self.sessions = {}  # 存储每个 WebSocket 连接的聊天记录
 
@@ -35,7 +33,7 @@ class WebSocketRPCServer:
         session = self.sessions.setdefault(websocket, [])
         session.append({"role": "user", "content": input_text})
         
-        input_image = moke()
+        # input_image = moke()
         gpt_response = await self.call_gpt4o(session, input_image)
         session.append({"role": "assistant", "content": gpt_response})
 
@@ -46,8 +44,9 @@ class WebSocketRPCServer:
             "params": [{"output_text": gpt_response}, {"output_image": ""}, {"output_audio": ""}],
             "id": request_id
         }
+        queue = self.send_queues.get(websocket)
+        await queue.put(json.dumps(response))
 
-        await self.send_queue.put(json.dumps(response))
     async def call_gpt4o(self, session, input_image):
         client = openai.OpenAI(api_key=self.openai_api_key)
         
@@ -71,14 +70,15 @@ class WebSocketRPCServer:
         except Exception as e:
             return f"Error: {str(e)}"
 
-    async def process_other_method(self, params, request_id):
+    async def process_other_method(self, websocket, params, request_id):
         response = {
             "jsonrpc": "2.0",
             "method": "output",
             "params": params,
             "id": request_id
         }
-        await self.send_queue.put(json.dumps(response))
+        queue = self.send_queues.get(websocket)
+        await queue.put(json.dumps(response))
 
     async def handle_jsonrpc_request(self, websocket, message):
         try:
@@ -94,7 +94,7 @@ class WebSocketRPCServer:
                 await self.process_input(websocket, params, request_id)
                 return None  # 不直接返回，而是通过发送队列返回响应
             elif method == "other_method":
-                await self.process_other_method(params, request_id)
+                await self.process_other_method(websocket, params, request_id)
                 return None
             else:
                 return json.dumps({"jsonrpc": "2.0", "error": {"code": -32601, "message": "Method not found"}, "id": request_id})
@@ -111,26 +111,28 @@ class WebSocketRPCServer:
             del self.sessions[websocket]  # 断开连接时删除会话历史
 
     async def receive_messages(self, websocket):
+        queue = self.send_queues.setdefault(websocket, asyncio.Queue())
         async for message in websocket:
             response = await self.handle_jsonrpc_request(websocket, message)
             if response:
                 await websocket.send(response)
-                print(f"Sent: {response}")
+                logger.info(f"Sent: {response}")
 
     async def send_messages(self, websocket):
+        queue = self.send_queues.get(websocket)
         while True:
-            response = await self.send_queue.get()
+            response = await queue.get()
             await websocket.send(response)
-            print(f"Sent from queue: {response}")
+            logger.info(f"Sent from queue: {response}")
             response_data = json.loads(response)
             if "params" in response_data and isinstance(response_data["params"], list):
                 for param in response_data["params"]:
                     if "output_text" in param:
-                        print(f"\nReceived text: {param['output_text']}")
+                        logger.info(f"\nReceived text: {param['output_text']}")
 
     async def run(self):
         async with websockets.serve(self.handler, self.host, self.port):
-            print(f"WebSocket JSON-RPC server started on ws://{self.host}:{self.port}")
+            logger.info(f"WebSocket JSON-RPC server started on ws://{self.host}:{self.port}")
             await asyncio.Future()  # Run forever
 
 if __name__ == "__main__":
